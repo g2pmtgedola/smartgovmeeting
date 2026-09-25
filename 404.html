@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <title>SmartGovMeeting - Memuatkan...</title>
+  <script>
+    (function() {
+      var href = window.location.href;
+      var hash = window.location.hash || '';
+
+      // Fix duplicate /public/public/
+      if (href.includes('/public/public/')) {
+        var fixedUrl = href.replace(/\/public\/public\//g, '/public/');
+        window.location.replace(fixedUrl);
+        return;
+      }
+
+      // If any other unknown path, redirect safely to the root repository portal
+      var cleanOrigin = window.location.origin;
+      var cleanBase = cleanOrigin + '/smartgovmeeting/';
+      window.location.replace(cleanBase + hash);
+    })();
+  </script>
+</head>
+<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px 20px; color: #1e293b; background: #f8fafc;">
+  <div style="max-width: 400px; margin: 40px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+    <h3 style="color: #2563eb; margin-bottom: 10px;">SmartGovMeeting PMTG</h3>
+    <p style="color: #64748b; font-size: 14px;">Menghubungkan ke portal mesyuarat...</p>
+    <a href="/smartgovmeeting/" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: bold;">Klik di sini untuk buka portal</a>
+  </div>
+</body>
+</html>
