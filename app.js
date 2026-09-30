@@ -5052,18 +5052,24 @@ const AttendanceModule = {
     const qrDiv = document.getElementById('attendQr');
     const cleanOrigin = window.location.origin;
     let cleanPath = window.location.pathname.replace(/\/public\/public\//g, '/public/');
-    const cacheBuster = Date.now();
-    let qrUrl = `${cleanOrigin}${cleanPath}?v=${cacheBuster}#scan-kehadiran?id=${meeting.id}`;
+    const encNama = encodeURIComponent(meeting.nama || '');
+    const encBil = encodeURIComponent(meeting.bilangan || '');
+    const encThn = encodeURIComponent(meeting.tahun || '');
+    const encTarikh = encodeURIComponent(meeting.tarikh || '');
+    const encMasa = encodeURIComponent(meeting.masa || '');
+    const encTempat = encodeURIComponent(meeting.tempat || '');
+    const mParams = `id=${meeting.id}&nama=${encNama}&bil=${encBil}&thn=${encThn}&tarikh=${encTarikh}&masa=${encMasa}&tempat=${encTempat}`;
+    let qrUrl = `${cleanOrigin}${cleanPath}?v=${cacheBuster}#scan-kehadiran?${mParams}`;
 
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       const localIP = state.localIP || 'localhost';
       if (localIP !== 'localhost') {
-        qrUrl = `http://${localIP}:8092/#scan-kehadiran?id=${meeting.id}`;
+        qrUrl = `http://${localIP}:8092/#scan-kehadiran?${mParams}`;
       }
     }
 
     if (meeting.tunnelUrl) {
-      qrUrl = `${meeting.tunnelUrl.replace(/\/$/, '')}/#scan-kehadiran?id=${meeting.id}`;
+      qrUrl = `${meeting.tunnelUrl.replace(/\/$/, '')}/#scan-kehadiran?${mParams}`;
     }
 
     new QRCode(qrDiv, {
@@ -5142,18 +5148,25 @@ const AttendanceModule = {
           if (item.event === 'message' && item.message) {
             const data = JSON.parse(item.message);
             if (data.event === 'attendance_record') {
-              const targetMeeting = state.meetings.find(m => m.id === data.meetingId);
+              const targetMeeting = state.meetings.find(m => m.id === data.meetingId || (m.id && data.meetingId && (m.id.includes(data.meetingId) || data.meetingId.includes(m.id))));
               if (targetMeeting) {
                 if (!targetMeeting.kehadiran) targetMeeting.kehadiran = {};
                 if (!targetMeeting.tidakHadirSebab) targetMeeting.tidakHadirSebab = {};
                 targetMeeting.kehadiran[data.memberId] = data.status;
                 if (data.sebab) targetMeeting.tidakHadirSebab[data.memberId] = data.sebab;
+              }
+
+              const isCurrentMeeting = (data.meetingId === meeting.id) || (meeting.id && data.meetingId && (meeting.id.includes(data.meetingId) || data.meetingId.includes(meeting.id)));
+              if (isCurrentMeeting) {
+                if (!meeting.kehadiran) meeting.kehadiran = {};
+                if (!meeting.tidakHadirSebab) meeting.tidakHadirSebab = {};
+                meeting.kehadiran[data.memberId] = data.status;
+                if (data.sebab) meeting.tidakHadirSebab[data.memberId] = data.sebab;
+
                 try {
                   localStorage.setItem('smartgov-demo-meetings', JSON.stringify(state.meetings));
                 } catch(e) {}
-              }
 
-              if (data.meetingId === meeting.id) {
                 updateRowUI(data.memberId, data.status, data.sebab);
                 playSuccessChime();
                 showToast(`⚡ Kehadiran direkodkan: ${data.nama} (${data.status})!`, 'success');
@@ -6953,29 +6966,66 @@ const ScanKehadiranModule = {
   async init(container, params) {
     const state = window.smartGovState;
     
-    // If state has only old or missing meetings, force fresh refresh from cloud
-    if (!state.meetings || state.meetings.length < 5) {
-      await refreshState();
-    }
-
     let meetingId = params && params.id;
     if (!meetingId) {
-      const match = window.location.href.match(/id=([a-zA-Z0-9-_]+)/);
+      const match = window.location.href.match(/[?&]id=([a-zA-Z0-9-_]+)/);
       if (match) meetingId = match[1];
     }
 
+    let paramNama = params && params.nama;
+    if (!paramNama) {
+      const matchNama = window.location.href.match(/[?&]nama=([^&#]+)/);
+      if (matchNama) paramNama = decodeURIComponent(matchNama[1].replace(/\+/g, ' '));
+    }
+    let paramBil = params && params.bil;
+    if (!paramBil) {
+      const matchBil = window.location.href.match(/[?&]bil=([^&#]+)/);
+      if (matchBil) paramBil = decodeURIComponent(matchBil[1]);
+    }
+    let paramThn = params && params.thn;
+    if (!paramThn) {
+      const matchThn = window.location.href.match(/[?&]thn=([^&#]+)/);
+      if (matchThn) paramThn = decodeURIComponent(matchThn[1]);
+    }
+    let paramTarikh = params && params.tarikh;
+    if (!paramTarikh) {
+      const matchTarikh = window.location.href.match(/[?&]tarikh=([^&#]+)/);
+      if (matchTarikh) paramTarikh = decodeURIComponent(matchTarikh[1]);
+    }
+    let paramMasa = params && params.masa;
+    if (!paramMasa) {
+      const matchMasa = window.location.href.match(/[?&]masa=([^&#]+)/);
+      if (matchMasa) paramMasa = decodeURIComponent(matchMasa[1].replace(/\+/g, ' '));
+    }
+    let paramTempat = params && params.tempat;
+    if (!paramTempat) {
+      const matchTempat = window.location.href.match(/[?&]tempat=([^&#]+)/);
+      if (matchTempat) paramTempat = decodeURIComponent(matchTempat[1].replace(/\+/g, ' '));
+    }
+
+    // 1. Try finding in state.meetings by ID
     let meeting = state.meetings.find(m => m.id === meetingId);
-    if (!meeting && (meetingId === 'meet-1789960350194-nk55' || (meetingId && meetingId.includes('nk55')))) {
-      meeting = state.meetings.find(m => m.nama && m.nama.toUpperCase().includes('MBJ'));
+    if (!meeting && meetingId) {
+      meeting = state.meetings.find(m => m.id && (m.id.includes(meetingId) || meetingId.includes(m.id)));
     }
-    if (!meeting && window.location.href.toLowerCase().includes('mbj')) {
-      meeting = state.meetings.find(m => m.nama && m.nama.toUpperCase().includes('MBJ'));
-    }
-    if (!meeting && state.meetings.length > 0) {
-      meeting = state.meetings.find(m => m.id && meetingId && (m.id.includes(meetingId) || meetingId.includes(m.id)));
-    }
-    if (!meeting) {
-      meeting = state.meetings.find(m => m.nama && m.nama.toUpperCase().includes('MBJ')) || state.meetings[0];
+
+    // 2. If not found in state, construct meeting object directly from QR parameters (never fall back to wrong meeting)
+    if (!meeting && meetingId) {
+      meeting = {
+        id: meetingId,
+        nama: paramNama || 'Mesyuarat PMTG',
+        bilangan: paramBil || '1',
+        tahun: paramThn || new Date().getFullYear().toString(),
+        tarikh: paramTarikh || new Date().toISOString().split('T')[0],
+        masa: paramMasa || '08:30 Pagi',
+        tempat: paramTempat || 'Bilik Persidangan, PMTG',
+        kehadiran: {},
+        tidakHadirSebab: {}
+      };
+      state.meetings.unshift(meeting);
+      try {
+        localStorage.setItem('smartgov-demo-meetings', JSON.stringify(state.meetings));
+      } catch (e) {}
     }
 
     if (!meeting) {
@@ -7570,10 +7620,17 @@ async function handleRouting() {
   let hash = window.location.hash.substring(1) || 'dashboard';
   let routeKey = hash;
   let queryParams = {};
+  if (window.location.search) {
+    const sParams = new URLSearchParams(window.location.search);
+    for (const [key, value] of sParams.entries()) {
+      queryParams[key] = value;
+    }
+  }
   if (hash.includes('?')) {
-    const parts = hash.split('?');
-    routeKey = parts[0];
-    const searchParams = new URLSearchParams(parts[1]);
+    const qIndex = hash.indexOf('?');
+    routeKey = hash.substring(0, qIndex);
+    const hashQuery = hash.substring(qIndex + 1);
+    const searchParams = new URLSearchParams(hashQuery);
     for (const [key, value] of searchParams.entries()) {
       queryParams[key] = value;
     }
