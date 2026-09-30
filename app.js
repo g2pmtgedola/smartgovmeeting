@@ -5059,6 +5059,7 @@ const AttendanceModule = {
     const encMasa = encodeURIComponent(meeting.masa || '');
     const encTempat = encodeURIComponent(meeting.tempat || '');
     const mParams = `id=${meeting.id}&nama=${encNama}&bil=${encBil}&thn=${encThn}&tarikh=${encTarikh}&masa=${encMasa}&tempat=${encTempat}`;
+    const cacheBuster = Date.now();
     let qrUrl = `${cleanOrigin}${cleanPath}?v=${cacheBuster}#scan-kehadiran?${mParams}`;
 
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
