@@ -5006,9 +5006,12 @@ const AttendanceModule = {
         <div style="display:flex; flex-direction:column; gap:20px;">
           <div class="card" style="text-align:center;">
             <h3 class="card-title" style="justify-content:center;"><i data-lucide="qr-code"></i> Imbas Kehadiran QR</h3>
-            <div style="display:flex; justify-content:center; margin:12px 0;">
-              <div style="font-size: 11px; font-weight: 700; color: var(--color-primary); margin-bottom: 6px; padding: 4px; background: rgba(59, 130, 246, 0.08); border-radius: 4px;">${meeting.nama}</div>
-            <div id="attendQr" style="width:150px; height:150px; padding:6px; background:white; border:1px solid #ddd;"></div>
+            <div style="display:flex; flex-direction:column; align-items:center; margin:12px 0;">
+              <div style="font-size: 12px; font-weight: 700; color: var(--color-primary); margin-bottom: 10px; padding: 4px 10px; background: rgba(59, 130, 246, 0.08); border-radius: 6px; max-width: 90%; word-break: break-word;">${meeting.nama}</div>
+              <div id="attendQr" title="Klik untuk besarkan kod QR" style="width:150px; height:150px; padding:6px; background:white; border:2px solid #3b82f6; border-radius:10px; cursor:pointer; box-shadow:0 4px 12px rgba(59,130,246,0.15); transition:transform 0.2s, box-shadow 0.2s;"></div>
+              <button type="button" class="btn btn-outline-primary btn-sm" id="btnOpenBigQr" style="margin-top:10px; font-size:11px; padding:4px 12px; display:inline-flex; align-items:center; gap:5px; cursor:pointer; border-radius:20px;">
+                <i data-lucide="maximize-2" style="width:12px; height:12px;"></i> 🔍 Klik Untuk Besarkan QR
+              </button>
             </div>
             <div style="font-size:10px; color:var(--text-muted); margin-bottom:8px; word-break:break-all;" id="qrUrlLabel"></div>
             <div style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;">
@@ -5077,6 +5080,72 @@ const AttendanceModule = {
       text: qrUrl,
       width: 138, height: 138
     });
+
+    function openBigQrModal() {
+      const modalHtml = `
+        <div style="text-align: center; padding: 6px 2px;">
+          <div style="font-size: 18px; font-weight: 800; color: var(--color-primary); margin-bottom: 8px; line-height: 1.35;">
+            ${meeting.nama}
+          </div>
+          <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; font-size: 12px;">
+            ${meeting.bilangan && meeting.tahun ? `<span style="background: rgba(59,130,246,0.12); color: #2563eb; padding: 4px 10px; border-radius: 6px; font-weight: 700;">Bil. ${meeting.bilangan}/${meeting.tahun}</span>` : ''}
+            ${meeting.tarikh ? `<span style="background: rgba(16,185,129,0.12); color: #059669; padding: 4px 10px; border-radius: 6px; font-weight: 600;">📅 ${meeting.tarikh}</span>` : ''}
+            ${meeting.masa ? `<span style="background: rgba(245,158,11,0.12); color: #d97706; padding: 4px 10px; border-radius: 6px; font-weight: 600;">⏰ ${meeting.masa}</span>` : ''}
+            ${meeting.tempat ? `<span style="background: rgba(107,114,128,0.12); color: #374151; padding: 4px 10px; border-radius: 6px; font-weight: 600;">📍 ${meeting.tempat}</span>` : ''}
+          </div>
+
+          <div style="display: flex; justify-content: center; margin: 12px 0 16px 0;">
+            <div id="bigAttendQr" style="padding: 16px; background: #ffffff; border: 4px solid #3b82f6; border-radius: 16px; box-shadow: 0 12px 30px -5px rgba(59, 130, 246, 0.3); display: inline-block;"></div>
+          </div>
+
+          <div style="font-size: 14px; color: var(--text-main); font-weight: 700; margin-bottom: 4px;">
+            📱 Halakan kamera telefon anda ke kod QR ini untuk mendaftar kehadiran
+          </div>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 18px;">
+            Kehadiran di skrin ini akan dikemaskini secara automatik setelah disahkan di telefon pegawai.
+          </div>
+
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary" id="btnCopyBigQrLink" style="font-size: 12px; padding: 8px 16px;">
+              📋 Salin Pautan Imbasan
+            </button>
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('globalModalCloseBtn').click()" style="font-size: 12px; padding: 8px 20px;">
+              ✓ Tutup Paparan
+            </button>
+          </div>
+        </div>
+      `;
+
+      showModal('Paparan Kod QR Kehadiran', modalHtml);
+
+      setTimeout(() => {
+        const bigQrDiv = document.getElementById('bigAttendQr');
+        if (bigQrDiv) {
+          bigQrDiv.innerHTML = '';
+          new QRCode(bigQrDiv, {
+            text: qrUrl,
+            width: 300,
+            height: 300
+          });
+        }
+        const copyBtn = document.getElementById('btnCopyBigQrLink');
+        if (copyBtn) {
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(qrUrl).then(() => {
+              showToast('Pautan kehadiran berjaya disalin!', 'success');
+            }).catch(() => {
+              showToast('Sila salin pautan secara manual: ' + qrUrl, 'info');
+            });
+          };
+        }
+      }, 50);
+    }
+
+    qrDiv.addEventListener('click', openBigQrModal);
+    const openBigQrBtn = document.getElementById('btnOpenBigQr');
+    if (openBigQrBtn) {
+      openBigQrBtn.addEventListener('click', openBigQrModal);
+    }
 
     const qrLabel = document.getElementById('qrUrlLabel');
     if (qrLabel) qrLabel.textContent = qrUrl;
