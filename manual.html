@@ -483,6 +483,25 @@
       });
     });
 
+    // Fallback for mockup images
+    document.querySelectorAll('.mockup-image').forEach(img => {
+      img.addEventListener('error', function() {
+        if (!this.dataset.triedPublic) {
+          this.dataset.triedPublic = '1';
+          const originalSrc = this.getAttribute('src');
+          if (!originalSrc.startsWith('public/')) {
+            this.src = 'public/' + originalSrc;
+            return;
+          }
+        }
+        if (!this.dataset.triedMemo && this.src.includes('memo_actual.png')) {
+          this.dataset.triedMemo = '1';
+          this.src = this.src.replace('memo_actual.png', 'memo_mockup.jpg');
+          return;
+        }
+      });
+    });
+
     if (window.lucide) window.lucide.createIcons();
   </script>
 </body>
