@@ -2933,12 +2933,10 @@ try {
           responseData = { success: true, member };
           status = 201;
         } else if (method === 'DELETE') {
-          db.meetings = db.meetings.filter(m => m.id !== body.id);
-          db.actions = db.actions.filter(a => a.meetingId !== body.id);
+          db.members = db.members.filter(m => m.id !== body.id);
           try {
-            localStorage.setItem('smartgov-demo-meetings', JSON.stringify(db.meetings)); 
-          syncToCloud();
-            localStorage.setItem('smartgov-demo-actions', JSON.stringify(db.actions));
+            localStorage.setItem('smartgov-demo-members', JSON.stringify(db.members)); 
+            syncToCloud();
           } catch (e) {}
           responseData = { success: true };
         } else if (method === 'PUT') {
@@ -2954,13 +2952,27 @@ try {
       else if (urlStr.includes('/api/meetings')) {
         if (method === 'POST') {
           const meeting = {
-            id: 'meet-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+            id: body.id || ('meet-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4)),
             ...body,
             createdAt: new Date().toISOString()
           };
-          db.meetings.push(meeting);
+          db.meetings.unshift(meeting);
+          try {
+            localStorage.setItem('smartgov-demo-meetings', JSON.stringify(db.meetings)); 
+            syncToCloud();
+          } catch(e) {}
           responseData = { success: true, meeting };
           status = 201;
+        } else if (method === 'DELETE') {
+          db.meetings = db.meetings.filter(m => m.id !== body.id);
+          db.actions = db.actions.filter(a => a.meetingId !== body.id);
+          try {
+            localStorage.setItem('smartgov-demo-meetings', JSON.stringify(db.meetings)); 
+            localStorage.setItem('smartgov-demo-actions', JSON.stringify(db.actions));
+            syncToCloud();
+          } catch (e) {}
+          responseData = { success: true };
+          status = 200;
         } else if (method === 'PUT') {
           const idx = db.meetings.findIndex(m => m.id === body.id);
           if (idx !== -1) {
@@ -3337,7 +3349,30 @@ async function refreshState() {
       const cloudData = await cloudRes.json();
       if (cloudData && Array.isArray(cloudData.meetings) && cloudData.meetings.length > 0) {
         window.smartGovState.members = cloudData.members || window.smartGovState.members;
-        window.smartGovState.meetings = cloudData.meetings;
+        
+        // Merge cloud meetings with local storage so user-created meetings are never lost
+        const localSaved = localStorage.getItem('smartgov-demo-meetings');
+        let localMeetings = [];
+        try { if (localSaved) localMeetings = JSON.parse(localSaved); } catch(e) {}
+
+        const mergedMeetings = [...cloudData.meetings];
+        if (Array.isArray(localMeetings)) {
+          localMeetings.forEach(lm => {
+            const idx = mergedMeetings.findIndex(m => m.id === lm.id);
+            if (idx === -1) {
+              mergedMeetings.unshift(lm); // Local meeting not yet in cloud! Keep it at top!
+            } else {
+              // If local copy is newer or has updated minit/kehadiran, preserve it
+              const cloudTime = new Date(mergedMeetings[idx].updatedAt || mergedMeetings[idx].createdAt || 0).getTime();
+              const currTime = new Date(lm.updatedAt || lm.createdAt || 0).getTime();
+              if (currTime > cloudTime) {
+                mergedMeetings[idx] = lm;
+              }
+            }
+          });
+        }
+
+        window.smartGovState.meetings = mergedMeetings;
         window.smartGovState.actions = cloudData.actions || window.smartGovState.actions;
         window.smartGovState.repository = cloudData.repository || window.smartGovState.repository;
         window.smartGovState.auditLogs = cloudData.auditLogs || window.smartGovState.auditLogs;
@@ -3877,19 +3912,25 @@ const MeetingsModule = {
         const mObj = state.meetings.find(x => x.id === mId);
         if (!confirm(`Adakah anda pasti untuk memadam mesyuarat "${mObj ? mObj.nama : ''}"?`)) return;
 
-        const res = await fetch(`${API_URL}/meetings`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: mId, operator: state.currentOperator })
-        });
-        const data = await res.json();
-        if (data.success) {
-          showToast('Mesyuarat berjaya dipadam.', 'success');
-          await refreshState();
-          MeetingsModule.renderList(container);
-        } else {
-          showToast('Gagal memadam: ' + (data.message || 'Ralat'), 'danger');
-        }
+        try {
+          await fetch(`${API_URL}/meetings`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: mId, operator: state.currentOperator })
+          });
+        } catch (e) {}
+
+        // Always update state & localStorage
+        state.meetings = state.meetings.filter(m => m.id !== mId);
+        state.actions = state.actions.filter(a => a.meetingId !== mId);
+        try {
+          localStorage.setItem('smartgov-demo-meetings', JSON.stringify(state.meetings));
+          localStorage.setItem('smartgov-demo-actions', JSON.stringify(state.actions));
+          syncToCloud();
+        } catch (e) {}
+
+        showToast('Mesyuarat berjaya dipadam.', 'success');
+        MeetingsModule.renderList(container);
       });
     });
 
@@ -4207,28 +4248,60 @@ const MeetingsModule = {
         operator: state.currentOperator
       };
 
+      const isNew = !isEdit;
+      const meetingIdToUse = isEdit ? meetingId : ('meet-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6));
+
       if (isEdit) {
         payload.id = meetingId;
         payload.status = meeting.status;
-        payload.kehadiran = meeting.kehadiran;
-        payload.minit = meeting.minit;
-        payload.tidakHadirSebab = meeting.tidakHadirSebab;
-        payload.ucapanPenutup = meeting.ucapanPenutup;
+        payload.kehadiran = meeting.kehadiran || {};
+        payload.minit = meeting.minit || {};
+        payload.tidakHadirSebab = meeting.tidakHadirSebab || {};
+        payload.ucapanPenutup = meeting.ucapanPenutup || '';
+        payload.createdAt = meeting.createdAt || new Date().toISOString();
+      } else {
+        payload.id = meetingIdToUse;
+        payload.status = 'Draf';
+        payload.kehadiran = {};
+        payload.tidakHadirSebab = {};
+        payload.minit = {};
+        payload.createdAt = new Date().toISOString();
+      }
+      payload.updatedAt = new Date().toISOString();
+
+      // 1. Immediately update in-memory state
+      if (isEdit) {
+        const idx = state.meetings.findIndex(m => m.id === meetingId);
+        if (idx !== -1) {
+          state.meetings[idx] = { ...state.meetings[idx], ...payload };
+        }
+      } else {
+        state.meetings.unshift(payload); // Put at top of list
       }
 
-      const method = isEdit ? 'PUT' : 'POST';
-      const res = await fetch(`${API_URL}/meetings`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast('Mesyuarat berjaya disimpan.', 'success');
-        window.location.hash = '#meetings';
-      } else {
-        showToast('Gagal: ' + data.message, 'danger');
+      // 2. Immediately persist to localStorage
+      try {
+        localStorage.setItem('smartgov-demo-meetings', JSON.stringify(state.meetings));
+      } catch (err) {}
+
+      // 3. Send to API (local server if reachable)
+      try {
+        await fetch(`${API_URL}/meetings`, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        console.warn('API sync warning:', err);
       }
+
+      // 4. Sync to cloud storage
+      try {
+        await syncToCloud();
+      } catch (err) {}
+
+      showToast(`Mesyuarat "${payload.nama}" berjaya disimpan!`, 'success');
+      window.location.hash = '#meetings';
     });
   }
 };
@@ -5795,19 +5868,24 @@ const ApprovalModule = {
         <tr><td class="meta-label">Tempat</td><td>:</td><td><strong>${meeting.tempat}</strong></td></tr>
       </table>
       <div class="print-section-title">KEHADIRAN :</div>
-      <table class="print-kehadiran-table">
-        ${hadir.map((h, i) => `
-          <tr>
-            <td class="col-num">${i + 1}.</td>
-            <td class="col-role">${h.jawatan}<br><span style="font-weight:normal; font-size:10pt;">${h.nama}</span></td>
-            <td class="col-pengerusi">${h.id === meeting.pengerusiId ? '- Pengerusi' : h.id === meeting.setiausahaId ? '- Pencatat Minit' : ''}</td>
-          </tr>
-        `).join('')}
-      </table>
+      ${hadir.length === 0 ? '<div style="margin-left:24px; margin-bottom:20px; font-size:10.5pt; color:#666;">Tiada rekod kehadiran</div>' : `
+        <ol class="print-kehadiran-list" style="margin-left:24px; margin-bottom:20px; font-size:10.5pt; line-height:1.7; padding-left:4px;">
+          ${hadir.map((h, i) => {
+            let roleTag = '';
+            if (h.id === meeting.pengerusiId) roleTag = ' - <strong>Pengerusi</strong>';
+            else if (h.id === meeting.setiausahaId) roleTag = ' - <strong>Pencatat Minit</strong>';
+            return `
+              <li style="margin-bottom:6px;">
+                <strong>${h.nama}</strong> - ${h.jawatan}${roleTag}
+              </li>
+            `;
+          }).join('')}
+        </ol>
+      `}
 
       <div class="print-section-title">TIDAK HADIR DENGAN MAAF :</div>
-      <ul style="margin-left:24px; margin-bottom:20px; font-size:10.5pt; list-style-type:circle;">
-        ${tidakHadir.length === 0 ? '<li>Tiada</li>' : tidakHadir.map(m => `<li><strong>${m.nama}</strong> - ${m.jawatan} (${meeting.tidakHadirSebab?.[m.id] || 'Sebab tidak dinyatakan'})</li>`).join('')}
+      <ul style="margin-left:24px; margin-bottom:20px; font-size:10.5pt; list-style-type:circle; line-height:1.7;">
+        ${tidakHadir.length === 0 ? '<li>Tiada</li>' : tidakHadir.map(m => `<li style="margin-bottom:6px;"><strong>${m.nama}</strong> - ${m.jawatan} (${meeting.tidakHadirSebab?.[m.id] || 'Sebab tidak dinyatakan'})</li>`).join('')}
       </ul>
 
       <div class="print-section-title" style="border-bottom:1px solid black; padding-bottom:2px; margin-bottom:16px;">AGENDA MESYUARAT</div>
